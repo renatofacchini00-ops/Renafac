@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "SP Bus",
+    "slug": "sp-bus",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.renafac.spbus",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Para mostrar ônibus próximos e sua localização no mapa.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Para enviar alertas mesmo com o app em segundo plano.",
+        "UIBackgroundModes": ["fetch", "remote-notification"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1565C0"
+      },
+      "package": "com.renafac.spbus",
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Para mostrar ônibus próximos e enviar alertas em segundo plano."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1565C0",
+          "sounds": [],
+          "mode": "production"
+        }
+      ]
+    ]
+  }
+}
