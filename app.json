@@ -6,13 +6,22 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/86489f44-ea78-438d-969a-e9acf4488c20"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.renafac.spbus",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Para mostrar ônibus próximos e sua localização no mapa.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Para enviar alertas mesmo com o app em segundo plano.",
-        "UIBackgroundModes": ["fetch", "remote-notification"]
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -47,6 +56,12 @@
           "mode": "production"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "86489f44-ea78-438d-969a-e9acf4488c20"
+      }
+    },
+    "owner": "renafac"
   }
 }
