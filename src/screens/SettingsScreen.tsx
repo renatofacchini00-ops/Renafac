@@ -54,13 +54,10 @@ export function SettingsScreen() {
     }
     setSptransStatus('testing');
     await saveConfig({ sptransToken });
-    try {
-      const ok = await testConnection();
-      setSptransStatus(ok ? 'ok' : 'error');
-      if (!ok) Alert.alert('Token inválido', 'A API retornou false. Verifique o token no site da SPTrans e se o app está cadastrado.');
-    } catch (e: any) {
-      setSptransStatus('error');
-      Alert.alert('Erro de rede', `Não foi possível conectar à SPTrans.\n\n${e?.message ?? e}`);
+    const result = await testConnection();
+    setSptransStatus(result.ok ? 'ok' : 'error');
+    if (!result.ok) {
+      Alert.alert('Falha na autenticação', `Detalhe: ${result.detail}`);
     }
   }, [sptransToken]);
 

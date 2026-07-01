@@ -15,20 +15,25 @@ async function spFetch(path: string, options?: RequestInit): Promise<Response> {
   });
 }
 
-async function authenticate(): Promise<boolean> {
+async function authenticate(): Promise<{ ok: boolean; detail: string }> {
   const { sptransToken } = await getConfig();
-  if (!sptransToken) return false;
+  if (!sptransToken) return { ok: false, detail: 'Token não configurado' };
   try {
     const res = await spFetch(
       `/Login/Autenticar?token=${encodeURIComponent(sptransToken)}`,
-      { method: 'POST' }
+      {
+        method: 'POST',
+        body: '',           // força Content-Length: 0
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      }
     );
     const text = await res.text();
-    authenticated = text.trim() === 'true';
+    const ok = text.trim() === 'true';
+    authenticated = ok;
     lastToken = sptransToken;
-    return authenticated;
-  } catch {
-    return false;
+    return { ok, detail: `HTTP ${res.status} → "${text.trim().slice(0, 80)}"` };
+  } catch (e: any) {
+    return { ok: false, detail: e?.message ?? String(e) };
   }
 }
 
@@ -38,6 +43,7 @@ async function ensureAuth(): Promise<void> {
     await authenticate();
   }
 }
+
 
 async function getJSON<T>(path: string, params?: Record<string, string>): Promise<T | null> {
   await ensureAuth();
@@ -96,7 +102,7 @@ export async function getArrivalForecast(
   return data?.p?.l?.[0] ?? null;
 }
 
-export async function testConnection(): Promise<boolean> {
+export async function testConnection(): Promise<{ ok: boolean; detail: string }> {
   authenticated = false;
   lastToken = '';
   return authenticate();
