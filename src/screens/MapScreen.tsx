@@ -179,7 +179,7 @@ export function MapScreen() {
       {error && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>
-            Configure o token SPTrans no .env para ver os ônibus
+            Configure o token SPTrans na aba ⚙️ Config para ver os ônibus
           </Text>
         </View>
       )}

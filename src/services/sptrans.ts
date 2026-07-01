@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { SPTRANS_BASE_URL, SPTRANS_TOKEN } from '../constants/config';
+import { SPTRANS_BASE_URL } from '../constants/config';
+import { getConfig } from './config-store';
 import type { BusLine, BusPosition, BusStop } from '../types';
 
 const api = axios.create({
@@ -9,11 +10,15 @@ const api = axios.create({
 });
 
 let authenticated = false;
+let lastToken = '';
 
 async function authenticate(): Promise<boolean> {
+  const { sptransToken } = await getConfig();
+  if (!sptransToken) return false;
   try {
-    const res = await api.post(`/Login/Autenticar?token=${SPTRANS_TOKEN}`);
+    const res = await api.post(`/Login/Autenticar?token=${sptransToken}`);
     authenticated = res.data === true;
+    lastToken = sptransToken;
     return authenticated;
   } catch {
     return false;
@@ -21,7 +26,8 @@ async function authenticate(): Promise<boolean> {
 }
 
 async function ensureAuth(): Promise<void> {
-  if (!authenticated) {
+  const { sptransToken } = await getConfig();
+  if (!authenticated || lastToken !== sptransToken) {
     await authenticate();
   }
 }
@@ -75,4 +81,9 @@ export async function getArrivalForecast(
     params: { codigoParada: stopCode, codigoLinha: lineCode },
   });
   return res.data?.p?.l?.[0] ?? null;
+}
+
+export async function testConnection(): Promise<boolean> {
+  authenticated = false;
+  return authenticate();
 }

@@ -1,4 +1,4 @@
-import { GOOGLE_MAPS_API_KEY } from '../constants/config';
+import { getConfig } from './config-store';
 import type { Coordinates, Route, RouteStep } from '../types';
 
 const DIRECTIONS_URL = 'https://maps.googleapis.com/maps/api/directions/json';
@@ -7,6 +7,7 @@ export async function getTransitRoutes(
   origin: Coordinates,
   destination: Coordinates
 ): Promise<Route[]> {
+  const { googleMapsKey } = await getConfig();
   const params = new URLSearchParams({
     origin: `${origin.latitude},${origin.longitude}`,
     destination: `${destination.latitude},${destination.longitude}`,
@@ -14,7 +15,7 @@ export async function getTransitRoutes(
     transit_mode: 'bus',
     alternatives: 'true',
     language: 'pt-BR',
-    key: GOOGLE_MAPS_API_KEY,
+    key: googleMapsKey,
   });
 
   const res = await fetch(`${DIRECTIONS_URL}?${params}`);
@@ -53,9 +54,10 @@ export async function getTransitRoutes(
 }
 
 export async function geocodeAddress(address: string): Promise<Coordinates | null> {
+  const { googleMapsKey } = await getConfig();
   const params = new URLSearchParams({
     address: `${address}, São Paulo, SP`,
-    key: GOOGLE_MAPS_API_KEY,
+    key: googleMapsKey,
     language: 'pt-BR',
   });
 
@@ -71,9 +73,10 @@ export async function geocodeAddress(address: string): Promise<Coordinates | nul
 }
 
 export async function reverseGeocode(coords: Coordinates): Promise<string> {
+  const { googleMapsKey } = await getConfig();
   const params = new URLSearchParams({
     latlng: `${coords.latitude},${coords.longitude}`,
-    key: GOOGLE_MAPS_API_KEY,
+    key: googleMapsKey,
     language: 'pt-BR',
   });
 
@@ -82,4 +85,22 @@ export async function reverseGeocode(coords: Coordinates): Promise<string> {
   );
   const data = await res.json();
   return data.results?.[0]?.formatted_address ?? 'Localização atual';
+}
+
+export async function testGoogleMapsKey(): Promise<boolean> {
+  const { googleMapsKey } = await getConfig();
+  if (!googleMapsKey) return false;
+  try {
+    const params = new URLSearchParams({
+      address: 'Avenida Paulista, São Paulo',
+      key: googleMapsKey,
+    });
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?${params}`
+    );
+    const data = await res.json();
+    return data.status === 'OK';
+  } catch {
+    return false;
+  }
 }
