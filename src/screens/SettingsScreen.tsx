@@ -13,7 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import { getConfig, saveConfig, clearConfig } from '../services/config-store';
-import { testConnection } from '../services/sptrans';
+import { testConnection, runDiagnostics } from '../services/sptrans';
 import { testGoogleMapsKey } from '../services/routing';
 import { COLORS } from '../constants/config';
 
@@ -27,6 +27,7 @@ export function SettingsScreen() {
   const [googleStatus, setGoogleStatus] = useState<Status>('idle');
   const [showSptrans, setShowSptrans] = useState(false);
   const [showGoogle, setShowGoogle] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
 
   useEffect(() => {
     getConfig().then((cfg) => {
@@ -60,6 +61,22 @@ export function SettingsScreen() {
     setSptransStatus(result.ok ? 'ok' : 'error');
     if (!result.ok) {
       Alert.alert('Falha na autenticação', result.detail);
+    }
+  }, [sptransToken]);
+
+  const handleDiagnose = useCallback(async () => {
+    const trimmed = sptransToken.trim();
+    if (!trimmed) {
+      Alert.alert('Preencha o token SPTrans primeiro');
+      return;
+    }
+    setDiagnosing(true);
+    await saveConfig({ sptransToken: trimmed });
+    try {
+      const report = await runDiagnostics();
+      Alert.alert('Diagnóstico SPTrans', report);
+    } finally {
+      setDiagnosing(false);
     }
   }, [sptransToken]);
 
@@ -157,6 +174,18 @@ export function SettingsScreen() {
               <ActivityIndicator color="#fff" size="small" />
             ) : (
               <Text style={styles.testBtnText}>Testar conexão</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.diagBtn, diagnosing && styles.testBtnDisabled]}
+            onPress={handleDiagnose}
+            disabled={diagnosing}
+          >
+            {diagnosing ? (
+              <ActivityIndicator color={COLORS.primary} size="small" />
+            ) : (
+              <Text style={styles.diagBtnText}>🔍 Diagnóstico completo</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -324,6 +353,15 @@ const styles = StyleSheet.create({
   },
   testBtnDisabled: { opacity: 0.6 },
   testBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  diagBtn: {
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  diagBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 14 },
   badge: {
     borderRadius: 20,
     paddingHorizontal: 10,

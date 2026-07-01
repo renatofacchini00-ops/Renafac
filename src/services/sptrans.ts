@@ -2,19 +2,38 @@ import { SPTRANS_BASE_URL } from '../constants/config';
 import { getConfig } from './config-store';
 import type { BusLine, BusPosition, BusStop } from '../types';
 
-// O cookie de sessão (apiCredentials) é gerenciado automaticamente pelo
-// NSURLSession/OkHttp do React Native: ele é armazenado quando o servidor
-// responde ao /Login/Autenticar e reenviado sozinho nas chamadas seguintes.
-// NÃO tentamos ler o header Set-Cookie manualmente — no iOS o fetch bloqueia
-// a leitura desse header (é um "forbidden response header"), então a captura
-// manual sempre volta vazia e as chamadas de dados eram negadas.
+// O cookie de sessão (apiCredentials) é exigido em toda chamada de dados.
+// Estratégia dupla (belt-and-suspenders):
+//  1) credentials:'include' → deixa o NSURLSession/OkHttp reenviar o cookie
+//     automaticamente (funciona quando o SO persiste o cookie).
+//  2) Se conseguirmos ler o header Set-Cookie na resposta do login, guardamos
+//     o valor e o reenviamos manualmente via header Cookie. No React Native o
+//     fetch às vezes PERMITE ler Set-Cookie (diferente do browser), então esse
+//     fallback cobre o caso em que a persistência automática falha.
 let authenticated = false;
 let lastToken = '';
+let sessionCookie = ''; // ex.: "apiCredentials=ABC123"
+
+function readSetCookie(res: Response): string {
+  const raw =
+    res.headers.get('set-cookie') ?? res.headers.get('Set-Cookie') ?? '';
+  if (!raw) return '';
+  // pega só o par nome=valor do apiCredentials, ignorando path/HttpOnly/etc
+  const match = raw.match(/apiCredentials=[^;,\s]+/);
+  return match ? match[0] : raw.split(';')[0];
+}
 
 async function spFetch(path: string, options?: RequestInit): Promise<Response> {
+  const extraHeaders: Record<string, string> = sessionCookie
+    ? { Cookie: sessionCookie }
+    : {};
   return fetch(`${SPTRANS_BASE_URL}${path}`, {
     credentials: 'include', // reenvia o cookie de sessão guardado pelo SO
     ...options,
+    headers: {
+      ...extraHeaders,
+      ...((options?.headers as Record<string, string>) ?? {}),
+    },
   });
 }
 
@@ -26,17 +45,22 @@ async function authenticate(): Promise<{ ok: boolean; detail: string }> {
   const tokenPreview = `${token.slice(0, 8)}…${token.slice(-4)} (${token.length} chars)`;
 
   try {
-    const res = await spFetch(
-      `/Login/Autenticar?token=${encodeURIComponent(token)}`,
+    const res = await fetch(
+      `${SPTRANS_BASE_URL}/Login/Autenticar?token=${encodeURIComponent(token)}`,
       {
         method: 'POST',
         body: '', // força Content-Length: 0 (a API rejeita POST sem corpo com HTTP 411)
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'include',
       }
     );
     const text = await res.text();
     const body = text.trim();
     const ok = body.toLowerCase() === 'true';
+    if (ok) {
+      const captured = readSetCookie(res);
+      if (captured) sessionCookie = captured;
+    }
     authenticated = ok;
     lastToken = token;
     return {
@@ -125,5 +149,62 @@ export async function getArrivalForecast(
 export async function testConnection(): Promise<{ ok: boolean; detail: string }> {
   authenticated = false;
   lastToken = '';
+  sessionCookie = '';
   return authenticate();
+}
+
+// Roda o fluxo completo passo a passo e devolve um relatório legível na tela,
+// pra descobrirmos exatamente onde os ônibus deixam de vir.
+export async function runDiagnostics(): Promise<string> {
+  const lines: string[] = [];
+  authenticated = false;
+  lastToken = '';
+  sessionCookie = '';
+
+  const { sptransToken } = await getConfig();
+  const token = sptransToken.trim();
+  lines.push(`1) Token: ${token ? `${token.slice(0, 6)}… (${token.length} chars)` : 'VAZIO'}`);
+
+  // Passo 2: autenticar
+  const auth = await authenticate();
+  lines.push(`2) Autenticação: ${auth.ok ? 'OK ✓' : 'FALHOU ✗'}`);
+  lines.push(`   ${auth.detail.replace(/\n/g, '\n   ')}`);
+  lines.push(`3) Cookie capturado do header: ${sessionCookie ? sessionCookie.slice(0, 24) + '…' : 'NÃO (header não legível)'}`);
+
+  if (!auth.ok) {
+    lines.push('\n⛔ Parou na autenticação. Verifique o token.');
+    return lines.join('\n');
+  }
+
+  // Passo 4: buscar posições cru
+  try {
+    const res = await spFetch('/Posicao');
+    lines.push(`4) GET /Posicao: HTTP ${res.status}`);
+    const raw = await res.text();
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      lines.push(`   Resposta não-JSON: ${raw.slice(0, 120)}`);
+    }
+    if (parsed) {
+      if (Array.isArray(parsed?.l)) {
+        const total = parsed.l.reduce(
+          (acc: number, l: any) => acc + (l.vs?.length ?? 0),
+          0
+        );
+        lines.push(`5) Ônibus recebidos: ${total} (em ${parsed.l.length} linhas)`);
+        lines.push(total > 0 ? '\n✅ A API está devolvendo ônibus!' : '\n⚠️ Zero ônibus (incomum).');
+      } else if (parsed?.Message) {
+        lines.push(`5) Negado pela API: "${parsed.Message}"`);
+        lines.push('\n⛔ O cookie de sessão não foi aceito.');
+      } else {
+        lines.push(`5) Formato inesperado: ${raw.slice(0, 120)}`);
+      }
+    }
+  } catch (e: any) {
+    lines.push(`4) Erro no /Posicao: ${e?.message ?? String(e)}`);
+  }
+
+  return lines.join('\n');
 }
