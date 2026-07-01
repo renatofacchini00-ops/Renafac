@@ -24,34 +24,45 @@ async function spFetch(path: string, options?: RequestInit): Promise<Response> {
 
 async function authenticate(): Promise<{ ok: boolean; detail: string }> {
   const { sptransToken } = await getConfig();
-  if (!sptransToken) return { ok: false, detail: 'Token não configurado' };
+  const token = sptransToken.trim(); // remove espaços/newlines que chegam via copy-paste
+  if (!token) return { ok: false, detail: 'Token não configurado' };
+
+  const tokenPreview = `${token.slice(0, 8)}…${token.slice(-4)} (${token.length} chars)`;
+
   try {
-    // Sem credentials:'include' para não enviar cookies velhos do NSURLSession
     const res = await fetch(
-      `${SPTRANS_BASE_URL}/Login/Autenticar?token=${encodeURIComponent(sptransToken)}`,
+      `${SPTRANS_BASE_URL}/Login/Autenticar?token=${encodeURIComponent(token)}`,
       {
         method: 'POST',
         body: '',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        cache: 'no-store',
       }
     );
     const text = await res.text();
-    const ok = text.trim() === 'true';
+    const body = text.trim();
+    const ok = body.toLowerCase() === 'true';
     if (ok) {
       const raw = res.headers.get('set-cookie') ?? res.headers.get('Set-Cookie') ?? '';
-      sessionCookie = raw.split(';')[0]; // guarda só "apiCredentials=xxxx"
+      sessionCookie = raw.split(';')[0];
     }
     authenticated = ok;
-    lastToken = sptransToken;
-    return { ok, detail: `HTTP ${res.status} → "${text.trim().slice(0, 80)}"` };
+    lastToken = token;
+    return {
+      ok,
+      detail: `token: ${tokenPreview}\nHTTP ${res.status} → "${body.slice(0, 80)}"`,
+    };
   } catch (e: any) {
-    return { ok: false, detail: e?.message ?? String(e) };
+    return {
+      ok: false,
+      detail: `token: ${tokenPreview}\nErro: ${e?.message ?? String(e)}`,
+    };
   }
 }
 
 async function ensureAuth(): Promise<void> {
   const { sptransToken } = await getConfig();
-  if (!authenticated || lastToken !== sptransToken) {
+  if (!authenticated || lastToken !== sptransToken.trim()) {
     await authenticate();
   }
 }

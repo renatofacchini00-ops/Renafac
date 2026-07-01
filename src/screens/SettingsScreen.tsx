@@ -40,7 +40,7 @@ export function SettingsScreen() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await saveConfig({ sptransToken, googleMapsKey });
+      await saveConfig({ sptransToken: sptransToken.trim(), googleMapsKey: googleMapsKey.trim() });
       Alert.alert('Salvo!', 'Configurações salvas com sucesso. Volte ao mapa e toque em ↻ para atualizar.');
     } finally {
       setSaving(false);
@@ -48,16 +48,18 @@ export function SettingsScreen() {
   }, [sptransToken, googleMapsKey]);
 
   const handleTestSptrans = useCallback(async () => {
-    if (!sptransToken.trim()) {
+    const trimmed = sptransToken.trim();
+    if (!trimmed) {
       Alert.alert('Preencha o token SPTrans primeiro');
       return;
     }
     setSptransStatus('testing');
-    await saveConfig({ sptransToken });
+    await saveConfig({ sptransToken: trimmed });
+    setSptransToken(trimmed); // atualiza UI sem espaços
     const result = await testConnection();
     setSptransStatus(result.ok ? 'ok' : 'error');
     if (!result.ok) {
-      Alert.alert('Falha na autenticação', `Detalhe: ${result.detail}`);
+      Alert.alert('Falha na autenticação', result.detail);
     }
   }, [sptransToken]);
 
