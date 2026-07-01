@@ -21,7 +21,7 @@ import type { BusStop, BusLine } from '../types';
 export function MapScreen() {
   const mapRef = useRef<MapView>(null);
   const { location, loading: locLoading } = useLocation();
-  const { buses, loading: busLoading, error, refresh } = useNearbyBuses(location);
+  const { buses, total, loading: busLoading, error, refresh } = useNearbyBuses(location);
 
   const [stops, setStops] = useState<BusStop[]>([]);
   const [stopQuery, setStopQuery] = useState('');
@@ -129,7 +129,7 @@ export function MapScreen() {
           <ActivityIndicator size="small" color={COLORS.primary} />
         ) : (
           <Text style={styles.statusText}>
-            {totalBuses} ônibus em {NEARBY_RADIUS_KM * 1000}m
+            {totalBuses} perto · {total} na cidade
           </Text>
         )}
         <TouchableOpacity onPress={refresh} style={styles.refreshBtn}>
@@ -176,12 +176,19 @@ export function MapScreen() {
         </View>
       )}
 
-      {error && (
+      {error ? (
         <View style={styles.errorBanner}>
-          <Text style={styles.errorText}>
-            Configure o token SPTrans na aba ⚙️ Config para ver os ônibus
-          </Text>
+          <Text style={styles.errorText}>{error}</Text>
         </View>
+      ) : (
+        totalBuses === 0 && total > 0 && !busLoading ? (
+          <View style={[styles.errorBanner, styles.infoBanner]}>
+            <Text style={styles.errorText}>
+              Nenhum ônibus dentro de {NEARBY_RADIUS_KM} km de você agora.
+              {' '}Há {total} rodando na cidade — afaste o zoom para vê-los.
+            </Text>
+          </View>
+        ) : null
       )}
     </View>
   );
@@ -306,5 +313,6 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 10,
   },
+  infoBanner: { backgroundColor: COLORS.primary + 'EE' },
   errorText: { color: '#fff', fontSize: 12, textAlign: 'center', fontWeight: '600' },
 });

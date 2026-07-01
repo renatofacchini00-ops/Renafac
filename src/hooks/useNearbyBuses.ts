@@ -17,6 +17,7 @@ function haversineKm(a: Coordinates, b: Coordinates): number {
 
 export function useNearbyBuses(center: Coordinates, radiusKm = NEARBY_RADIUS_KM) {
   const [buses, setBuses] = useState<BusPosition[]>([]);
+  const [total, setTotal] = useState(0); // total de veículos recebidos da API (cidade toda)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,13 +26,24 @@ export function useNearbyBuses(center: Coordinates, radiusKm = NEARBY_RADIUS_KM)
     setError(null);
     try {
       const all = await getBusPositions();
-      const nearby = all.filter((line) =>
-        line.vs.some(
-          (v) =>
-            haversineKm(center, { latitude: v.py, longitude: v.px }) <= radiusKm
-        )
-      );
+      const totalVehicles = all.reduce((acc, line) => acc + line.vs.length, 0);
+      setTotal(totalVehicles);
+
+      // Mantém em cada linha só os veículos dentro do raio (não a linha inteira).
+      const nearby = all
+        .map((line) => ({
+          ...line,
+          vs: line.vs.filter(
+            (v) =>
+              haversineKm(center, { latitude: v.py, longitude: v.px }) <= radiusKm
+          ),
+        }))
+        .filter((line) => line.vs.length > 0);
       setBuses(nearby);
+
+      if (totalVehicles === 0) {
+        setError('Sem resposta da API. Toque em 🔍 Diagnóstico na aba Config.');
+      }
     } catch (e: any) {
       setError(e?.message ?? 'Erro ao buscar ônibus');
     } finally {
@@ -45,5 +57,5 @@ export function useNearbyBuses(center: Coordinates, radiusKm = NEARBY_RADIUS_KM)
     return () => clearInterval(interval);
   }, [refresh]);
 
-  return { buses, loading, error, refresh };
+  return { buses, total, loading, error, refresh };
 }

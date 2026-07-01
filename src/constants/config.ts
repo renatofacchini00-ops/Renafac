@@ -12,7 +12,7 @@ export const SP_REGION = {
   longitudeDelta: 0.15,
 };
 
-export const NEARBY_RADIUS_KM = 1.0;
+export const NEARBY_RADIUS_KM = 2.5;
 export const REFRESH_INTERVAL_MS = 30_000;
 
 export const COLORS = {
