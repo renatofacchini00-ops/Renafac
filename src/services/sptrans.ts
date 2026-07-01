@@ -2,16 +2,23 @@ import { SPTRANS_BASE_URL } from '../constants/config';
 import { getConfig } from './config-store';
 import type { BusLine, BusPosition, BusStop } from '../types';
 
-// iOS NSURLSession gerencia cookies automaticamente quando usamos fetch com credentials: 'include'
-// Não tentamos extrair/injetar cookies manualmente — deixamos o runtime fazer isso.
-
+// Gerenciamos o cookie manualmente para evitar que o NSURLSession envie cookies
+// de sessões antigas expiradas junto com o POST de autenticação, o que faz o
+// servidor ignorar o token e retornar "false".
+let sessionCookie = '';
 let authenticated = false;
 let lastToken = '';
 
 async function spFetch(path: string, options?: RequestInit): Promise<Response> {
+  const cookieHeader: Record<string, string> = sessionCookie
+    ? { Cookie: sessionCookie }
+    : {};
   return fetch(`${SPTRANS_BASE_URL}${path}`, {
-    credentials: 'include',
     ...options,
+    headers: {
+      ...cookieHeader,
+      ...((options?.headers as Record<string, string>) ?? {}),
+    },
   });
 }
 
@@ -19,16 +26,21 @@ async function authenticate(): Promise<{ ok: boolean; detail: string }> {
   const { sptransToken } = await getConfig();
   if (!sptransToken) return { ok: false, detail: 'Token não configurado' };
   try {
-    const res = await spFetch(
-      `/Login/Autenticar?token=${encodeURIComponent(sptransToken)}`,
+    // Sem credentials:'include' para não enviar cookies velhos do NSURLSession
+    const res = await fetch(
+      `${SPTRANS_BASE_URL}/Login/Autenticar?token=${encodeURIComponent(sptransToken)}`,
       {
         method: 'POST',
-        body: '',           // força Content-Length: 0
+        body: '',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       }
     );
     const text = await res.text();
     const ok = text.trim() === 'true';
+    if (ok) {
+      const raw = res.headers.get('set-cookie') ?? res.headers.get('Set-Cookie') ?? '';
+      sessionCookie = raw.split(';')[0]; // guarda só "apiCredentials=xxxx"
+    }
     authenticated = ok;
     lastToken = sptransToken;
     return { ok, detail: `HTTP ${res.status} → "${text.trim().slice(0, 80)}"` };
