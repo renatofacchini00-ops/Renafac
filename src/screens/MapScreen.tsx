@@ -89,7 +89,8 @@ export function MapScreen() {
             <BusMarker
               key={`${line.cl}-${vehicle.p}`}
               vehicle={vehicle}
-              lineLabel={line.lt}
+              lineLabel={line.c}
+              destination={line.sl === 1 ? line.lt0 : line.lt1}
             />
           ))
         )}

@@ -22,9 +22,11 @@ export interface BusVehicle {
 }
 
 export interface BusPosition {
+  c: string;        // letreiro completo da linha (ex: "847P-10")
   cl: number;       // código da linha
-  lc: boolean;
-  lt: string;
+  sl: number;       // sentido: 1 = destino lt0, 2 = destino lt1
+  lt0: string;      // letreiro terminal principal
+  lt1: string;      // letreiro terminal secundário
   qv: number;       // quantidade de veículos
   vs: BusVehicle[]; // veículos
 }

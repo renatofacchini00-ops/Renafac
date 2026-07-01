@@ -6,10 +6,25 @@ import type { BusVehicle } from '../types';
 
 interface Props {
   vehicle: BusVehicle;
-  lineLabel: string;
+  lineLabel: string;   // letreiro da linha, ex: "847P-10"
+  destination: string; // para onde o ônibus está indo (conforme o sentido)
 }
 
-export function BusMarker({ vehicle, lineLabel }: Props) {
+// Transforma "2026-07-01T23:48:51Z" em algo como "há 2 min" ou "às 20:48".
+function formatUpdated(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const diffMin = Math.round((Date.now() - t) / 60000);
+  if (diffMin <= 0) return 'agora mesmo';
+  if (diffMin === 1) return 'há 1 min';
+  if (diffMin < 60) return `há ${diffMin} min`;
+  const d = new Date(iso);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `às ${hh}:${mm}`;
+}
+
+export function BusMarker({ vehicle, lineLabel, destination }: Props) {
   return (
     <Marker
       coordinate={{ latitude: vehicle.py, longitude: vehicle.px }}
@@ -21,16 +36,22 @@ export function BusMarker({ vehicle, lineLabel }: Props) {
           {lineLabel}
         </Text>
       </View>
-      <Callout>
+      <Callout tooltip>
         <View style={styles.callout}>
-          <Text style={styles.calloutTitle}>Linha {lineLabel}</Text>
-          <Text style={styles.calloutText}>Prefixo: {vehicle.p}</Text>
-          <Text style={styles.calloutText}>
-            {vehicle.a ? 'Acessível' : 'Não acessível'}
-          </Text>
-          <Text style={styles.calloutTime}>
-            Atualizado: {vehicle.ta}
-          </Text>
+          <View style={styles.calloutHeader}>
+            <Text style={styles.calloutBadge}>{lineLabel}</Text>
+            {vehicle.a && <Text style={styles.accessible}>♿</Text>}
+          </View>
+          {!!destination && (
+            <Text style={styles.calloutDest} numberOfLines={2}>
+              Sentido {destination}
+            </Text>
+          )}
+          <View style={styles.calloutRow}>
+            <Text style={styles.calloutMeta}>Veículo {vehicle.p}</Text>
+            <Text style={styles.calloutMeta}>{formatUpdated(vehicle.ta)}</Text>
+          </View>
+          <View style={styles.calloutArrow} />
         </View>
       </Callout>
     </Marker>
@@ -44,6 +65,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 3,
     alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -51,31 +74,69 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
   },
   icon: {
-    fontSize: 16,
+    fontSize: 15,
   },
   label: {
     color: '#fff',
-    fontSize: 9,
-    fontWeight: '700',
-    maxWidth: 60,
+    fontSize: 10,
+    fontWeight: '800',
+    maxWidth: 70,
   },
   callout: {
-    padding: 8,
-    minWidth: 160,
+    backgroundColor: COLORS.card,
+    borderRadius: 14,
+    padding: 12,
+    minWidth: 180,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
   },
-  calloutTitle: {
-    fontWeight: '700',
-    fontSize: 14,
+  calloutHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  calloutBadge: {
+    backgroundColor: COLORS.bus,
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 15,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    overflow: 'hidden',
+  },
+  accessible: { fontSize: 18, marginLeft: 8 },
+  calloutDest: {
+    fontSize: 13,
+    fontWeight: '600',
     color: COLORS.text,
-    marginBottom: 4,
+    marginBottom: 8,
   },
-  calloutText: {
-    fontSize: 12,
+  calloutRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  calloutMeta: {
+    fontSize: 11,
     color: COLORS.textSecondary,
   },
-  calloutTime: {
-    fontSize: 10,
-    color: COLORS.textSecondary,
-    marginTop: 4,
+  calloutArrow: {
+    position: 'absolute',
+    bottom: -8,
+    left: '50%',
+    marginLeft: -8,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: COLORS.card,
   },
 });

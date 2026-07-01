@@ -96,7 +96,7 @@ async function checkBusesForAlert(alert: BusAlert): Promise<string[]> {
 
         if (estimatedMinutes <= alert.maxMinutesAway) {
           alerts.push(
-            `🚌 Linha ${line.lt} a ~${estimatedMinutes} min do ponto de origem`
+            `🚌 Linha ${line.c} a ~${estimatedMinutes} min do ponto de origem`
           );
         }
       }
