@@ -60,15 +60,18 @@ async function ensureAuth(): Promise<void> {
 
 async function getJSON<T>(path: string, params?: Record<string, string>): Promise<T | null> {
   await ensureAuth();
-  const url = new URL(`${SPTRANS_BASE_URL}${path}`);
-  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  // IMPORTANTE: montamos a query manualmente. Usar new URL(BASE+path) e pegar
+  // url.pathname devolveria "/v2.1/Posicao", que o spFetch prependaria de novo
+  // com o BASE (que já tem /v2.1), gerando ".../v2.1/v2.1/Posicao" (inválido).
+  const qs = params ? `?${new URLSearchParams(params).toString()}` : '';
+  const relPath = `${path}${qs}`;
   try {
-    let res = await spFetch(url.pathname + url.search);
+    let res = await spFetch(relPath);
     // Sessão pode ter expirado (cookie vencido) → reautentica uma vez e repete.
     if (res.status === 401 || res.status === 403) {
       authenticated = false;
       await ensureAuth();
-      res = await spFetch(url.pathname + url.search);
+      res = await spFetch(relPath);
     }
     if (!res.ok) return null;
     return res.json();
