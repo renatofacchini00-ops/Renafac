@@ -5,18 +5,39 @@ import type { BusLine, BusPosition, BusStop } from '../types';
 
 const api = axios.create({
   baseURL: SPTRANS_BASE_URL,
-  withCredentials: true,
   timeout: 10_000,
 });
 
+let sessionCookie = '';
 let authenticated = false;
 let lastToken = '';
+
+// Injeta o cookie de sessão em todas as requisições
+api.interceptors.request.use((config) => {
+  if (sessionCookie) {
+    config.headers = config.headers ?? {};
+    config.headers['Cookie'] = sessionCookie;
+  }
+  return config;
+});
 
 async function authenticate(): Promise<boolean> {
   const { sptransToken } = await getConfig();
   if (!sptransToken) return false;
   try {
-    const res = await api.post(`/Login/Autenticar?token=${sptransToken}`);
+    const res = await api.post(
+      `/Login/Autenticar?token=${sptransToken}`,
+      null,
+      { headers: { 'Content-Length': '0', 'Content-Type': 'application/json' } }
+    );
+
+    // Extrai o cookie apiCredentials da resposta
+    const setCookieHeader = res.headers['set-cookie'];
+    if (setCookieHeader) {
+      const raw = Array.isArray(setCookieHeader) ? setCookieHeader[0] : setCookieHeader;
+      sessionCookie = raw.split(';')[0]; // ex: "apiCredentials=1E82D75..."
+    }
+
     authenticated = res.data === true;
     lastToken = sptransToken;
     return authenticated;
@@ -27,7 +48,7 @@ async function authenticate(): Promise<boolean> {
 
 async function ensureAuth(): Promise<void> {
   const { sptransToken } = await getConfig();
-  if (!authenticated || lastToken !== sptransToken) {
+  if (!authenticated || lastToken !== sptransToken || !sessionCookie) {
     await authenticate();
   }
 }
@@ -85,5 +106,6 @@ export async function getArrivalForecast(
 
 export async function testConnection(): Promise<boolean> {
   authenticated = false;
+  sessionCookie = '';
   return authenticate();
 }
