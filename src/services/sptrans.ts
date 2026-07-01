@@ -2,23 +2,19 @@ import { SPTRANS_BASE_URL } from '../constants/config';
 import { getConfig } from './config-store';
 import type { BusLine, BusPosition, BusStop } from '../types';
 
-// Gerenciamos o cookie manualmente para evitar que o NSURLSession envie cookies
-// de sessões antigas expiradas junto com o POST de autenticação, o que faz o
-// servidor ignorar o token e retornar "false".
-let sessionCookie = '';
+// O cookie de sessão (apiCredentials) é gerenciado automaticamente pelo
+// NSURLSession/OkHttp do React Native: ele é armazenado quando o servidor
+// responde ao /Login/Autenticar e reenviado sozinho nas chamadas seguintes.
+// NÃO tentamos ler o header Set-Cookie manualmente — no iOS o fetch bloqueia
+// a leitura desse header (é um "forbidden response header"), então a captura
+// manual sempre volta vazia e as chamadas de dados eram negadas.
 let authenticated = false;
 let lastToken = '';
 
 async function spFetch(path: string, options?: RequestInit): Promise<Response> {
-  const cookieHeader: Record<string, string> = sessionCookie
-    ? { Cookie: sessionCookie }
-    : {};
   return fetch(`${SPTRANS_BASE_URL}${path}`, {
+    credentials: 'include', // reenvia o cookie de sessão guardado pelo SO
     ...options,
-    headers: {
-      ...cookieHeader,
-      ...((options?.headers as Record<string, string>) ?? {}),
-    },
   });
 }
 
@@ -30,22 +26,17 @@ async function authenticate(): Promise<{ ok: boolean; detail: string }> {
   const tokenPreview = `${token.slice(0, 8)}…${token.slice(-4)} (${token.length} chars)`;
 
   try {
-    const res = await fetch(
-      `${SPTRANS_BASE_URL}/Login/Autenticar?token=${encodeURIComponent(token)}`,
+    const res = await spFetch(
+      `/Login/Autenticar?token=${encodeURIComponent(token)}`,
       {
         method: 'POST',
-        body: '',
+        body: '', // força Content-Length: 0 (a API rejeita POST sem corpo com HTTP 411)
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        cache: 'no-store',
       }
     );
     const text = await res.text();
     const body = text.trim();
     const ok = body.toLowerCase() === 'true';
-    if (ok) {
-      const raw = res.headers.get('set-cookie') ?? res.headers.get('Set-Cookie') ?? '';
-      sessionCookie = raw.split(';')[0];
-    }
     authenticated = ok;
     lastToken = token;
     return {
@@ -73,7 +64,13 @@ async function getJSON<T>(path: string, params?: Record<string, string>): Promis
   const url = new URL(`${SPTRANS_BASE_URL}${path}`);
   if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   try {
-    const res = await spFetch(url.pathname + url.search);
+    let res = await spFetch(url.pathname + url.search);
+    // Sessão pode ter expirado (cookie vencido) → reautentica uma vez e repete.
+    if (res.status === 401 || res.status === 403) {
+      authenticated = false;
+      await ensureAuth();
+      res = await spFetch(url.pathname + url.search);
+    }
     if (!res.ok) return null;
     return res.json();
   } catch {
