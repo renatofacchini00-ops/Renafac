@@ -2,38 +2,17 @@ import { SPTRANS_BASE_URL } from '../constants/config';
 import { getConfig } from './config-store';
 import type { BusLine, BusPosition, BusStop } from '../types';
 
-// O cookie de sessão (apiCredentials) é exigido em toda chamada de dados.
-// Estratégia dupla (belt-and-suspenders):
-//  1) credentials:'include' → deixa o NSURLSession/OkHttp reenviar o cookie
-//     automaticamente (funciona quando o SO persiste o cookie).
-//  2) Se conseguirmos ler o header Set-Cookie na resposta do login, guardamos
-//     o valor e o reenviamos manualmente via header Cookie. No React Native o
-//     fetch às vezes PERMITE ler Set-Cookie (diferente do browser), então esse
-//     fallback cobre o caso em que a persistência automática falha.
+// Estratégia confirmada em campo (ver runDiagnostics): o cookie de sessão
+// (apiCredentials) precisa ser gerenciado EXCLUSIVAMENTE pelo NSURLSession/
+// OkHttp via credentials:'include'. Reenviar o cookie manualmente num header
+// Cookie faz o iOS responder 401 — por isso NUNCA setamos o header Cookie.
 let authenticated = false;
 let lastToken = '';
-let sessionCookie = ''; // ex.: "apiCredentials=ABC123"
-
-function readSetCookie(res: Response): string {
-  const raw =
-    res.headers.get('set-cookie') ?? res.headers.get('Set-Cookie') ?? '';
-  if (!raw) return '';
-  // pega só o par nome=valor do apiCredentials, ignorando path/HttpOnly/etc
-  const match = raw.match(/apiCredentials=[^;,\s]+/);
-  return match ? match[0] : raw.split(';')[0];
-}
 
 async function spFetch(path: string, options?: RequestInit): Promise<Response> {
-  const extraHeaders: Record<string, string> = sessionCookie
-    ? { Cookie: sessionCookie }
-    : {};
   return fetch(`${SPTRANS_BASE_URL}${path}`, {
-    credentials: 'include', // reenvia o cookie de sessão guardado pelo SO
+    credentials: 'include', // o SO reenvia o cookie de sessão automaticamente
     ...options,
-    headers: {
-      ...extraHeaders,
-      ...((options?.headers as Record<string, string>) ?? {}),
-    },
   });
 }
 
@@ -45,22 +24,18 @@ async function authenticate(): Promise<{ ok: boolean; detail: string }> {
   const tokenPreview = `${token.slice(0, 8)}…${token.slice(-4)} (${token.length} chars)`;
 
   try {
-    const res = await fetch(
-      `${SPTRANS_BASE_URL}/Login/Autenticar?token=${encodeURIComponent(token)}`,
+    // credentials:'include' faz o SO GUARDAR o cookie devolvido pelo login
+    const res = await spFetch(
+      `/Login/Autenticar?token=${encodeURIComponent(token)}`,
       {
         method: 'POST',
         body: '', // força Content-Length: 0 (a API rejeita POST sem corpo com HTTP 411)
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        credentials: 'include',
       }
     );
     const text = await res.text();
     const body = text.trim();
     const ok = body.toLowerCase() === 'true';
-    if (ok) {
-      const captured = readSetCookie(res);
-      if (captured) sessionCookie = captured;
-    }
     authenticated = ok;
     lastToken = token;
     return {
@@ -149,7 +124,6 @@ export async function getArrivalForecast(
 export async function testConnection(): Promise<{ ok: boolean; detail: string }> {
   authenticated = false;
   lastToken = '';
-  sessionCookie = '';
   return authenticate();
 }
 
@@ -199,8 +173,6 @@ export async function runDiagnostics(): Promise<string> {
     const m = rawCookie.match(/apiCredentials=[^;,\s]+/);
     cookie = m ? m[0] : '';
     lines.push(`Cookie: valor ${cookie.length} chars (header cru ${rawCookie.length})`);
-    // sincroniza estado global com a estratégia que vamos escolher
-    sessionCookie = cookie;
     authenticated = authBody.toLowerCase() === 'true';
     lastToken = token;
   } catch (e: any) {
