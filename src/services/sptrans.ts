@@ -153,58 +153,90 @@ export async function testConnection(): Promise<{ ok: boolean; detail: string }>
   return authenticate();
 }
 
-// Roda o fluxo completo passo a passo e devolve um relatório legível na tela,
-// pra descobrirmos exatamente onde os ônibus deixam de vir.
+// Descreve o resultado de um GET /Posicao em uma linha curta.
+function describePosicao(status: number, raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.l)) {
+      const total = parsed.l.reduce(
+        (acc: number, l: any) => acc + (l.vs?.length ?? 0),
+        0
+      );
+      return `HTTP ${status} → ${total} ônibus ✅`;
+    }
+    if (parsed?.Message) return `HTTP ${status} → negado ✗`;
+  } catch {
+    // cai no genérico abaixo
+  }
+  return `HTTP ${status} → ${raw.slice(0, 40)}`;
+}
+
+// Autentica e então testa 3 formas de mandar o cookie no GET /Posicao,
+// pra descobrir qual estratégia o iOS aceita. A que devolver ônibus é a certa.
 export async function runDiagnostics(): Promise<string> {
   const lines: string[] = [];
-  authenticated = false;
-  lastToken = '';
-  sessionCookie = '';
-
   const { sptransToken } = await getConfig();
   const token = sptransToken.trim();
-  lines.push(`1) Token: ${token ? `${token.slice(0, 6)}… (${token.length} chars)` : 'VAZIO'}`);
+  lines.push(`Token: ${token ? `${token.slice(0, 6)}… (${token.length} chars)` : 'VAZIO'}`);
+  if (!token) return lines.join('\n');
 
-  // Passo 2: autenticar
-  const auth = await authenticate();
-  lines.push(`2) Autenticação: ${auth.ok ? 'OK ✓' : 'FALHOU ✗'}`);
-  lines.push(`   ${auth.detail.replace(/\n/g, '\n   ')}`);
-  lines.push(`3) Cookie capturado do header: ${sessionCookie ? sessionCookie.slice(0, 24) + '…' : 'NÃO (header não legível)'}`);
-
-  if (!auth.ok) {
-    lines.push('\n⛔ Parou na autenticação. Verifique o token.');
+  // Autentica (fresco), pedindo pro SO guardar o cookie via credentials
+  let cookie = '';
+  try {
+    const authRes = await fetch(
+      `${SPTRANS_BASE_URL}/Login/Autenticar?token=${encodeURIComponent(token)}`,
+      {
+        method: 'POST',
+        body: '',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'include',
+      }
+    );
+    const authBody = (await authRes.text()).trim();
+    lines.push(`Auth: HTTP ${authRes.status} "${authBody.slice(0, 12)}"`);
+    const rawCookie =
+      authRes.headers.get('set-cookie') ?? authRes.headers.get('Set-Cookie') ?? '';
+    const m = rawCookie.match(/apiCredentials=[^;,\s]+/);
+    cookie = m ? m[0] : '';
+    lines.push(`Cookie: valor ${cookie.length} chars (header cru ${rawCookie.length})`);
+    // sincroniza estado global com a estratégia que vamos escolher
+    sessionCookie = cookie;
+    authenticated = authBody.toLowerCase() === 'true';
+    lastToken = token;
+  } catch (e: any) {
+    lines.push(`Auth ERRO: ${e?.message ?? String(e)}`);
     return lines.join('\n');
   }
 
-  // Passo 4: buscar posições cru
+  const url = `${SPTRANS_BASE_URL}/Posicao`;
+
+  // A) só cookie manual, sem credentials
   try {
-    const res = await spFetch('/Posicao');
-    lines.push(`4) GET /Posicao: HTTP ${res.status}`);
-    const raw = await res.text();
-    let parsed: any = null;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      lines.push(`   Resposta não-JSON: ${raw.slice(0, 120)}`);
-    }
-    if (parsed) {
-      if (Array.isArray(parsed?.l)) {
-        const total = parsed.l.reduce(
-          (acc: number, l: any) => acc + (l.vs?.length ?? 0),
-          0
-        );
-        lines.push(`5) Ônibus recebidos: ${total} (em ${parsed.l.length} linhas)`);
-        lines.push(total > 0 ? '\n✅ A API está devolvendo ônibus!' : '\n⚠️ Zero ônibus (incomum).');
-      } else if (parsed?.Message) {
-        lines.push(`5) Negado pela API: "${parsed.Message}"`);
-        lines.push('\n⛔ O cookie de sessão não foi aceito.');
-      } else {
-        lines.push(`5) Formato inesperado: ${raw.slice(0, 120)}`);
-      }
-    }
+    const r = await fetch(url, cookie ? { headers: { Cookie: cookie } } : {});
+    lines.push(`A) cookie manual: ${describePosicao(r.status, await r.text())}`);
   } catch (e: any) {
-    lines.push(`4) Erro no /Posicao: ${e?.message ?? String(e)}`);
+    lines.push(`A) erro: ${e?.message ?? String(e)}`);
   }
 
+  // B) só cookie do SO (credentials), sem header manual
+  try {
+    const r = await fetch(url, { credentials: 'include' });
+    lines.push(`B) cookie do SO: ${describePosicao(r.status, await r.text())}`);
+  } catch (e: any) {
+    lines.push(`B) erro: ${e?.message ?? String(e)}`);
+  }
+
+  // C) os dois juntos
+  try {
+    const r = await fetch(url, {
+      credentials: 'include',
+      ...(cookie ? { headers: { Cookie: cookie } } : {}),
+    });
+    lines.push(`C) ambos: ${describePosicao(r.status, await r.text())}`);
+  } catch (e: any) {
+    lines.push(`C) erro: ${e?.message ?? String(e)}`);
+  }
+
+  lines.push('\nA que mostrar "ônibus ✅" é a estratégia certa.');
   return lines.join('\n');
 }
