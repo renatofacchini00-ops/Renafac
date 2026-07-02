@@ -9,7 +9,7 @@ import {
   FlatList,
   TextInput,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Circle, Polyline, Marker } from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE, Circle } from 'react-native-maps';
 import { useLocation } from '../hooks/useLocation';
 import { useNearbyBuses } from '../hooks/useNearbyBuses';
 import { useLineTracking } from '../hooks/useLineTracking';
@@ -32,6 +32,7 @@ export function MapScreen() {
 
   // busca de paradas
   const [stops, setStops] = useState<BusStop[]>([]);
+  const [showStopResults, setShowStopResults] = useState(false);
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
   const [stopLines, setStopLines] = useState<BusLine[]>([]);
   const [showLines, setShowLines] = useState(false);
@@ -41,7 +42,7 @@ export function MapScreen() {
   const [showLineResults, setShowLineResults] = useState(false);
   const [trackedLine, setTrackedLine] = useState<BusLine | null>(null);
 
-  const { vehicles, stops: lineStops } = useLineTracking(trackedLine?.cl ?? null);
+  const { vehicles } = useLineTracking(trackedLine?.cl ?? null);
 
   const handleCenterOnMe = useCallback(() => {
     mapRef.current?.animateToRegion(
@@ -56,7 +57,17 @@ export function MapScreen() {
     try {
       if (mode === 'stop') {
         const results = await searchStops(query);
-        setStops(results.slice(0, 20));
+        const list = results.slice(0, 20);
+        setStops(list);
+        setShowStopResults(list.length > 0);
+        if (list.length === 0) {
+          Alert.alert('Nada encontrado', 'Nenhuma parada com esse nome.');
+        } else {
+          mapRef.current?.fitToCoordinates(
+            list.map((s) => ({ latitude: s.py, longitude: s.px })),
+            { edgePadding: { top: 160, right: 60, bottom: 260, left: 60 }, animated: true }
+          );
+        }
       } else {
         const results = await searchLines(query);
         setLineResults(results);
@@ -71,6 +82,11 @@ export function MapScreen() {
 
   const handleStopPress = useCallback(async (stop: BusStop) => {
     setSelectedStop(stop);
+    setShowStopResults(false);
+    mapRef.current?.animateToRegion(
+      { latitude: stop.py, longitude: stop.px, latitudeDelta: 0.008, longitudeDelta: 0.008 },
+      500
+    );
     try {
       const lines = await getLinesByStop(stop.cp);
       setStopLines(lines);
@@ -83,6 +99,7 @@ export function MapScreen() {
   const handleTrackLine = useCallback((line: BusLine) => {
     setTrackedLine(line);
     setShowLineResults(false);
+    setShowStopResults(false);
     setStops([]); // limpa paradas soltas pra não poluir
   }, []);
 
@@ -90,19 +107,24 @@ export function MapScreen() {
     setTrackedLine(null);
   }, []);
 
-  // Enquadra o mapa no trajeto/ônibus da linha quando eles chegam
+  // Enquadra o mapa em todos os ônibus da linha quando as posições chegam.
+  // (A API da SPTrans não fornece o traçado real da linha, então mostramos
+  // apenas os veículos ao vivo — eles próprios revelam o caminho da linha.)
   useEffect(() => {
-    const coords = [
-      ...lineStops.map((s) => ({ latitude: s.py, longitude: s.px })),
-      ...vehicles.map((v) => ({ latitude: v.py, longitude: v.px })),
-    ];
-    if (trackedLine && coords.length > 1) {
+    if (!trackedLine || vehicles.length === 0) return;
+    const coords = vehicles.map((v) => ({ latitude: v.py, longitude: v.px }));
+    if (coords.length === 1) {
+      mapRef.current?.animateToRegion(
+        { ...coords[0], latitudeDelta: 0.03, longitudeDelta: 0.03 },
+        500
+      );
+    } else {
       mapRef.current?.fitToCoordinates(coords, {
-        edgePadding: { top: 120, right: 60, bottom: 200, left: 60 },
+        edgePadding: { top: 160, right: 60, bottom: 200, left: 60 },
         animated: true,
       });
     }
-  }, [trackedLine, lineStops.length, vehicles.length]);
+  }, [trackedLine, vehicles.length]);
 
   const totalBuses = buses.reduce((acc, b) => acc + b.vs.length, 0);
   const lineDestination = trackedLine
@@ -144,36 +166,16 @@ export function MapScreen() {
           </>
         )}
 
-        {/* MODO LINHA: trajeto + paradas + ônibus da linha */}
-        {trackedLine && (
-          <>
-            {lineStops.length > 1 && (
-              <Polyline
-                coordinates={lineStops.map((s) => ({ latitude: s.py, longitude: s.px }))}
-                strokeColor={COLORS.primary}
-                strokeWidth={4}
-              />
-            )}
-            {lineStops.map((s) => (
-              <Marker
-                key={`ls-${s.cp}`}
-                coordinate={{ latitude: s.py, longitude: s.px }}
-                anchor={{ x: 0.5, y: 0.5 }}
-                tracksViewChanges={false}
-              >
-                <View style={styles.stopDot} />
-              </Marker>
-            ))}
-            {vehicles.map((v) => (
-              <BusMarker
-                key={`lv-${v.p}`}
-                vehicle={v}
-                lineLabel={trackedLine.lt}
-                destination={lineDestination}
-              />
-            ))}
-          </>
-        )}
+        {/* MODO LINHA: todos os ônibus da linha ao vivo */}
+        {trackedLine &&
+          vehicles.map((v) => (
+            <BusMarker
+              key={`lv-${v.p}`}
+              vehicle={v}
+              lineLabel={trackedLine.lt}
+              destination={lineDestination}
+            />
+          ))}
       </MapView>
 
       {/* Barra de busca com alternância Parada / Linha */}
@@ -254,6 +256,35 @@ export function MapScreen() {
       <TouchableOpacity style={styles.locationBtn} onPress={handleCenterOnMe}>
         <Text style={styles.locationBtnText}>📍</Text>
       </TouchableOpacity>
+
+      {/* Resultados da busca por parada */}
+      {showStopResults && (
+        <View style={styles.linesPanel}>
+          <View style={styles.linesPanelHeader}>
+            <Text style={styles.linesPanelTitle}>
+              {stops.length} parada{stops.length > 1 ? 's' : ''} encontrada{stops.length > 1 ? 's' : ''}
+            </Text>
+            <TouchableOpacity onPress={() => setShowStopResults(false)}>
+              <Text style={styles.closeBtn}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={stops}
+            keyExtractor={(s) => String(s.cp)}
+            style={{ maxHeight: 260 }}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.lineRow} onPress={() => handleStopPress(item)}>
+                <Text style={styles.stopIcon}>🚏</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.lineRowTitle} numberOfLines={1}>{item.np}</Text>
+                  <Text style={styles.lineRowSub} numberOfLines={1}>{item.ed}</Text>
+                </View>
+                <Text style={styles.lineRowGo}>Ver ›</Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      )}
 
       {/* Resultados da busca por linha */}
       {showLineResults && (
@@ -448,14 +479,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   lineCloseText: { fontSize: 15, color: COLORS.textSecondary, fontWeight: '700' },
-  stopDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-  },
+  stopIcon: { fontSize: 20, width: 30, textAlign: 'center' },
   locationBtn: {
     position: 'absolute',
     bottom: 24,
