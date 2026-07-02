@@ -31,6 +31,12 @@ export interface BusPosition {
   vs: BusVehicle[]; // veículos
 }
 
+// Resposta de /Posicao/Linha (posições de uma linha específica)
+export interface LineVehicles {
+  hr: string;          // horário de referência
+  vs: BusVehicle[];    // veículos da linha
+}
+
 export interface BusStop {
   cp: number;       // código de parada
   np: string;       // nome da parada

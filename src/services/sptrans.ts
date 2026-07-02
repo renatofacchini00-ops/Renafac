@@ -1,6 +1,6 @@
 import { SPTRANS_BASE_URL } from '../constants/config';
 import { getConfig } from './config-store';
-import type { BusLine, BusPosition, BusStop } from '../types';
+import type { BusLine, BusPosition, BusStop, LineVehicles } from '../types';
 
 // Estratégia confirmada em campo (ver runDiagnostics): o cookie de sessão
 // (apiCredentials) precisa ser gerenciado EXCLUSIVAMENTE pelo NSURLSession/
@@ -90,8 +90,8 @@ export async function getBusPositions(): Promise<BusPosition[]> {
   return Array.isArray(data?.l) ? data!.l : [];
 }
 
-export async function getBusPositionsByLine(lineCode: number): Promise<BusPosition | null> {
-  return getJSON<BusPosition>('/Posicao/Linha', { codigoLinha: String(lineCode) });
+export async function getBusPositionsByLine(lineCode: number): Promise<LineVehicles | null> {
+  return getJSON<LineVehicles>('/Posicao/Linha', { codigoLinha: String(lineCode) });
 }
 
 export async function searchStops(query: string): Promise<BusStop[]> {
