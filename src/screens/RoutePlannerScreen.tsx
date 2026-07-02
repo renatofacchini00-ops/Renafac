@@ -6,93 +6,74 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  FlatList,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { getTransitRoutes, geocodeAddress, reverseGeocode } from '../services/routing';
-import { addRecentRoute, saveFavoriteRoute } from '../services/storage';
-import { RouteCard } from '../components/RouteCard';
-import { useLocation } from '../hooks/useLocation';
+import { searchStops, getLinesByStop } from '../services/sptrans';
+import { saveFavoriteRoute, addRecentRoute } from '../services/storage';
 import { COLORS } from '../constants/config';
-import type { Route, Coordinates, FavoriteRoute } from '../types';
+import type { BusStop, BusLine, FavoriteRoute } from '../types';
+
+// Uma "linha direta" é uma linha (mesmo código/sentido) que serve tanto a
+// parada de origem quanto a de destino.
+interface DirectLine {
+  line: BusLine;
+}
 
 export function RoutePlannerScreen() {
-  const { location } = useLocation();
-  const [originText, setOriginText] = useState('');
-  const [destText, setDestText] = useState('');
-  const [originCoords, setOriginCoords] = useState<Coordinates | null>(null);
-  const [destCoords, setDestCoords] = useState<Coordinates | null>(null);
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [selectedRoute, setSelectedRoute] = useState(0);
+  const [originStop, setOriginStop] = useState<BusStop | null>(null);
+  const [destStop, setDestStop] = useState<BusStop | null>(null);
+  const [lines, setLines] = useState<DirectLine[] | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const useMyLocation = useCallback(async () => {
-    setOriginCoords(location);
-    const addr = await reverseGeocode(location);
-    setOriginText(addr);
-  }, [location]);
-
-  const handleSearch = useCallback(async () => {
-    if (!originText.trim() || !destText.trim()) {
-      Alert.alert('Preencha origem e destino');
+  const handleFindLines = useCallback(async () => {
+    if (!originStop || !destStop) {
+      Alert.alert('Escolha as duas paradas', 'Selecione a parada de origem e a de destino.');
       return;
     }
     setLoading(true);
+    setLines(null);
     try {
-      let oCoords = originCoords;
-      let dCoords = destCoords;
+      const [originLines, destLines] = await Promise.all([
+        getLinesByStop(originStop.cp),
+        getLinesByStop(destStop.cp),
+      ]);
+      const destCodes = new Set(destLines.map((l) => l.cl));
+      const direct = originLines
+        .filter((l) => destCodes.has(l.cl))
+        .map((line) => ({ line }));
+      setLines(direct);
 
-      if (!oCoords) {
-        oCoords = await geocodeAddress(originText);
-        if (!oCoords) throw new Error('Origem não encontrada');
-        setOriginCoords(oCoords);
-      }
-      if (!dCoords) {
-        dCoords = await geocodeAddress(destText);
-        if (!dCoords) throw new Error('Destino não encontrado');
-        setDestCoords(dCoords);
-      }
-
-      const results = await getTransitRoutes(oCoords, dCoords);
-      if (results.length === 0) {
-        Alert.alert('Nenhuma rota encontrada', 'Tente outros endereços.');
-        return;
-      }
-      setRoutes(results);
-      setSelectedRoute(0);
-
+      // guarda no histórico (usa as paradas como pontos)
       const recent: FavoriteRoute = {
         id: `${Date.now()}`,
-        name: `${originText} → ${destText}`,
-        origin: { address: originText, coords: oCoords },
-        destination: { address: destText, coords: dCoords },
+        name: `${originStop.np} → ${destStop.np}`,
+        origin: { address: originStop.np, coords: { latitude: originStop.py, longitude: originStop.px } },
+        destination: { address: destStop.np, coords: { latitude: destStop.py, longitude: destStop.px } },
         createdAt: Date.now(),
       };
       await addRecentRoute(recent);
-    } catch (e: any) {
-      Alert.alert('Erro', e?.message ?? 'Não foi possível buscar rotas. Configure a chave do Google Maps.');
+    } catch {
+      Alert.alert('Erro', 'Não foi possível buscar as linhas. Tente de novo.');
     } finally {
       setLoading(false);
     }
-  }, [originText, destText, originCoords, destCoords]);
+  }, [originStop, destStop]);
 
   const handleSaveFavorite = useCallback(async () => {
-    if (!originCoords || !destCoords) return;
+    if (!originStop || !destStop) return;
     const fav: FavoriteRoute = {
       id: `fav-${Date.now()}`,
-      name: `${originText} → ${destText}`,
-      origin: { address: originText, coords: originCoords },
-      destination: { address: destText, coords: destCoords },
+      name: `${originStop.np} → ${destStop.np}`,
+      origin: { address: originStop.np, coords: { latitude: originStop.py, longitude: originStop.px } },
+      destination: { address: destStop.np, coords: { latitude: destStop.py, longitude: destStop.px } },
       createdAt: Date.now(),
     };
     await saveFavoriteRoute(fav);
     Alert.alert('Salvo', 'Rota adicionada aos favoritos!');
-  }, [originText, destText, originCoords, destCoords]);
-
-  const route = routes[selectedRoute];
+  }, [originStop, destStop]);
 
   return (
     <KeyboardAvoidingView
@@ -100,159 +81,238 @@ export function RoutePlannerScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {/* Inputs */}
-        <View style={styles.card}>
-          <View style={styles.inputRow}>
-            <Text style={styles.inputIcon}>🟢</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="De onde você vai sair?"
-              placeholderTextColor={COLORS.textSecondary}
-              value={originText}
-              onChangeText={(t) => {
-                setOriginText(t);
-                setOriginCoords(null);
-              }}
-              returnKeyType="next"
-            />
-          </View>
-          <TouchableOpacity style={styles.myLocationBtn} onPress={useMyLocation}>
-            <Text style={styles.myLocationText}>📍 Usar minha localização</Text>
-          </TouchableOpacity>
+        <Text style={styles.intro}>
+          Escolha a parada de onde você sai e a parada aonde quer chegar. O app mostra as
+          linhas de ônibus que ligam as duas. 🚌
+        </Text>
 
-          <View style={styles.separator} />
+        <StopPicker
+          icon="🟢"
+          label="Origem"
+          placeholder="Buscar parada de origem..."
+          selected={originStop}
+          onSelect={(s) => { setOriginStop(s); setLines(null); }}
+        />
 
-          <View style={styles.inputRow}>
-            <Text style={styles.inputIcon}>🔴</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Para onde você vai?"
-              placeholderTextColor={COLORS.textSecondary}
-              value={destText}
-              onChangeText={(t) => {
-                setDestText(t);
-                setDestCoords(null);
-              }}
-              returnKeyType="search"
-              onSubmitEditing={handleSearch}
-            />
-          </View>
-        </View>
+        <StopPicker
+          icon="🔴"
+          label="Destino"
+          placeholder="Buscar parada de destino..."
+          selected={destStop}
+          onSelect={(s) => { setDestStop(s); setLines(null); }}
+        />
 
         <TouchableOpacity
-          style={[styles.searchBtn, loading && styles.searchBtnDisabled]}
-          onPress={handleSearch}
+          style={[styles.findBtn, loading && styles.findBtnDisabled]}
+          onPress={handleFindLines}
           disabled={loading}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.searchBtnText}>Buscar Rotas</Text>
+            <Text style={styles.findBtnText}>Encontrar linhas</Text>
           )}
         </TouchableOpacity>
 
-        {routes.length > 0 && (
-          <>
-            <View style={styles.routesHeader}>
+        {lines !== null && (
+          <View style={styles.results}>
+            <View style={styles.resultsHeader}>
               <Text style={styles.sectionTitle}>
-                {routes.length} rota{routes.length > 1 ? 's' : ''} encontrada{routes.length > 1 ? 's' : ''}
+                {lines.length === 0
+                  ? 'Nenhuma linha direta'
+                  : `${lines.length} linha${lines.length > 1 ? 's' : ''} direta${lines.length > 1 ? 's' : ''}`}
               </Text>
-              <TouchableOpacity onPress={handleSaveFavorite}>
-                <Text style={styles.saveBtn}>★ Salvar</Text>
-              </TouchableOpacity>
+              {lines.length > 0 && (
+                <TouchableOpacity onPress={handleSaveFavorite}>
+                  <Text style={styles.saveBtn}>★ Salvar</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
-            <FlatList
-              data={routes}
-              keyExtractor={(_, i) => String(i)}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.routesList}
-              renderItem={({ item, index }) => (
-                <RouteCard
-                  route={item}
-                  index={index}
-                  selected={selectedRoute === index}
-                  onSelect={() => setSelectedRoute(index)}
-                />
-              )}
-            />
-
-            {route && (
-              <View style={styles.stepsCard}>
-                <Text style={styles.sectionTitle}>Passo a passo</Text>
-                {route.steps.map((step, i) => (
-                  <View key={i} style={styles.step}>
-                    <View style={styles.stepDot}>
-                      <Text style={styles.stepDotText}>
-                        {step.lineShortName ? '🚌' : '🚶'}
-                      </Text>
-                    </View>
-                    <View style={styles.stepContent}>
-                      {step.lineShortName && (
-                        <Text style={styles.stepLine}>Linha {step.lineShortName}</Text>
-                      )}
-                      <Text style={styles.stepInstruction}>{step.instruction}</Text>
-                      {step.departureStop && (
-                        <Text style={styles.stepDetail}>
-                          {step.departureStop} → {step.arrivalStop}
-                          {step.numStops ? ` (${step.numStops} paradas)` : ''}
-                        </Text>
-                      )}
-                      <Text style={styles.stepMeta}>
-                        {step.distance} · {step.duration}
-                      </Text>
-                    </View>
+            {lines.length === 0 ? (
+              <Text style={styles.emptyText}>
+                Não há uma linha única que ligue essas duas paradas. Você provavelmente precisa
+                de baldeação (trocar de ônibus). Tente escolher paradas em avenidas maiores mais
+                próximas da origem/destino.
+              </Text>
+            ) : (
+              lines.map(({ line }) => (
+                <View key={`${line.cl}`} style={styles.lineCard}>
+                  <Text style={styles.lineBadge}>{line.lt}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.lineDest} numberOfLines={1}>
+                      {line.sl === 1 ? line.tp : line.ts}
+                    </Text>
+                    <Text style={styles.lineSub} numberOfLines={1}>
+                      Sentido {line.tp} ↔ {line.ts}
+                    </Text>
                   </View>
-                ))}
-              </View>
+                </View>
+              ))
             )}
-          </>
+
+            {lines.length > 0 && (
+              <Text style={styles.tip}>
+                💡 Confira o sentido do ônibus antes de embarcar. Para ver esses ônibus ao vivo,
+                use a busca por 🚌 Linha no Mapa.
+              </Text>
+            )}
+          </View>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
+// Sub-componente: busca e seleção de uma parada.
+function StopPicker({
+  icon,
+  label,
+  placeholder,
+  selected,
+  onSelect,
+}: {
+  icon: string;
+  label: string;
+  placeholder: string;
+  selected: BusStop | null;
+  onSelect: (stop: BusStop) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<BusStop[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const search = useCallback(async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    try {
+      const r = await searchStops(query);
+      setResults(r.slice(0, 12));
+    } catch {
+      Alert.alert('Erro', 'Não foi possível buscar paradas.');
+    } finally {
+      setSearching(false);
+    }
+  }, [query]);
+
+  if (selected) {
+    return (
+      <View style={styles.card}>
+        <Text style={styles.pickerLabel}>{icon} {label}</Text>
+        <View style={styles.selectedRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.selectedName} numberOfLines={1}>{selected.np}</Text>
+            <Text style={styles.selectedAddr} numberOfLines={1}>{selected.ed}</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => { onSelect(null as any); setQuery(''); setResults([]); }}
+          >
+            <Text style={styles.changeBtn}>Trocar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.pickerLabel}>{icon} {label}</Text>
+      <View style={styles.searchRow}>
+        <TextInput
+          style={styles.input}
+          placeholder={placeholder}
+          placeholderTextColor={COLORS.textSecondary}
+          value={query}
+          onChangeText={setQuery}
+          onSubmitEditing={search}
+          returnKeyType="search"
+        />
+        <TouchableOpacity style={styles.searchBtn} onPress={search} disabled={searching}>
+          {searching ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.searchBtnText}>Buscar</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+      {results.map((s) => (
+        <TouchableOpacity
+          key={s.cp}
+          style={styles.resultRow}
+          onPress={() => { onSelect(s); setResults([]); setQuery(''); }}
+        >
+          <Text style={styles.resultIcon}>🚏</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.resultName} numberOfLines={1}>{s.np}</Text>
+            <Text style={styles.resultAddr} numberOfLines={1}>{s.ed}</Text>
+          </View>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   content: { padding: 16, paddingBottom: 40 },
+  intro: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 19, marginBottom: 14 },
   card: {
     backgroundColor: COLORS.card,
     borderRadius: 14,
     padding: 14,
-    elevation: 3,
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
     marginBottom: 12,
   },
-  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  inputIcon: { fontSize: 16, width: 20, textAlign: 'center' },
-  input: { flex: 1, fontSize: 15, color: COLORS.text, paddingVertical: 8 },
-  myLocationBtn: { marginLeft: 30, marginTop: 4, marginBottom: 2 },
-  myLocationText: { fontSize: 13, color: COLORS.primary, fontWeight: '600' },
-  separator: { height: 1, backgroundColor: COLORS.border, marginVertical: 10, marginLeft: 30 },
+  pickerLabel: { fontSize: 13, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
+  searchRow: { flexDirection: 'row', gap: 8 },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: COLORS.text,
+    backgroundColor: COLORS.background,
+  },
   searchBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  searchBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
+  },
+  resultIcon: { fontSize: 18, width: 24, textAlign: 'center' },
+  resultName: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  resultAddr: { fontSize: 11, color: COLORS.textSecondary, marginTop: 1 },
+  selectedRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  selectedName: { fontSize: 15, fontWeight: '700', color: COLORS.text },
+  selectedAddr: { fontSize: 12, color: COLORS.textSecondary, marginTop: 1 },
+  changeBtn: { fontSize: 13, color: COLORS.primary, fontWeight: '700' },
+  findBtn: {
     backgroundColor: COLORS.primary,
     borderRadius: 12,
     paddingVertical: 15,
     alignItems: 'center',
     marginBottom: 20,
+    marginTop: 4,
   },
-  searchBtnDisabled: { opacity: 0.6 },
-  searchBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  routesHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
-  saveBtn: { fontSize: 14, color: COLORS.accent, fontWeight: '700' },
-  routesList: { paddingRight: 16, marginBottom: 20 },
-  stepsCard: {
+  findBtnDisabled: { opacity: 0.6 },
+  findBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  results: {
     backgroundColor: COLORS.card,
     borderRadius: 14,
     padding: 16,
@@ -261,21 +321,37 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
     shadowRadius: 3,
-    marginTop: 8,
   },
-  step: { flexDirection: 'row', gap: 12, marginTop: 14 },
-  stepDot: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.primary + '18',
-    justifyContent: 'center',
+  resultsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
   },
-  stepDotText: { fontSize: 14 },
-  stepContent: { flex: 1 },
-  stepLine: { fontSize: 13, fontWeight: '700', color: COLORS.primary, marginBottom: 2 },
-  stepInstruction: { fontSize: 13, color: COLORS.text, lineHeight: 18 },
-  stepDetail: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  stepMeta: { fontSize: 11, color: COLORS.textSecondary, marginTop: 4 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
+  saveBtn: { fontSize: 14, color: COLORS.accent, fontWeight: '700' },
+  emptyText: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 19 },
+  lineCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
+  },
+  lineBadge: {
+    backgroundColor: COLORS.primary,
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 14,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    overflow: 'hidden',
+    minWidth: 64,
+    textAlign: 'center',
+  },
+  lineDest: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  lineSub: { fontSize: 11, color: COLORS.textSecondary, marginTop: 1 },
+  tip: { fontSize: 12, color: COLORS.textSecondary, lineHeight: 18, marginTop: 12 },
 });

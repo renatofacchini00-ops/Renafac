@@ -14,39 +14,33 @@ import {
 } from 'react-native';
 import { getConfig, saveConfig, clearConfig } from '../services/config-store';
 import { testConnection, runDiagnostics } from '../services/sptrans';
-import { testGoogleMapsKey } from '../services/routing';
 import { COLORS } from '../constants/config';
 
 type Status = 'idle' | 'testing' | 'ok' | 'error';
 
 export function SettingsScreen() {
   const [sptransToken, setSptransToken] = useState('');
-  const [googleMapsKey, setGoogleMapsKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [sptransStatus, setSptransStatus] = useState<Status>('idle');
-  const [googleStatus, setGoogleStatus] = useState<Status>('idle');
   const [showSptrans, setShowSptrans] = useState(false);
-  const [showGoogle, setShowGoogle] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
 
   useEffect(() => {
     getConfig().then((cfg) => {
       setSptransToken(cfg.sptransToken);
-      setGoogleMapsKey(cfg.googleMapsKey);
       if (cfg.sptransToken) setSptransStatus('ok');
-      if (cfg.googleMapsKey) setGoogleStatus('ok');
     });
   }, []);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await saveConfig({ sptransToken: sptransToken.trim(), googleMapsKey: googleMapsKey.trim() });
+      await saveConfig({ sptransToken: sptransToken.trim() });
       Alert.alert('Salvo!', 'Configurações salvas com sucesso. Volte ao mapa e toque em ↻ para atualizar.');
     } finally {
       setSaving(false);
     }
-  }, [sptransToken, googleMapsKey]);
+  }, [sptransToken]);
 
   const handleTestSptrans = useCallback(async () => {
     const trimmed = sptransToken.trim();
@@ -80,20 +74,8 @@ export function SettingsScreen() {
     }
   }, [sptransToken]);
 
-  const handleTestGoogle = useCallback(async () => {
-    if (!googleMapsKey.trim()) {
-      Alert.alert('Preencha a chave do Google Maps primeiro');
-      return;
-    }
-    setGoogleStatus('testing');
-    await saveConfig({ googleMapsKey });
-    const ok = await testGoogleMapsKey();
-    setGoogleStatus(ok ? 'ok' : 'error');
-    if (!ok) Alert.alert('Chave inválida', 'Verifique a chave no Google Cloud Console e certifique-se de ter ativado a Geocoding API.');
-  }, [googleMapsKey]);
-
   const handleClear = useCallback(() => {
-    Alert.alert('Limpar configurações', 'Deseja apagar todos os tokens salvos?', [
+    Alert.alert('Limpar configurações', 'Deseja apagar o token salvo?', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Apagar',
@@ -101,9 +83,7 @@ export function SettingsScreen() {
         onPress: async () => {
           await clearConfig();
           setSptransToken('');
-          setGoogleMapsKey('');
           setSptransStatus('idle');
-          setGoogleStatus('idle');
         },
       },
     ]);
@@ -117,14 +97,14 @@ export function SettingsScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
         {/* Banner de status geral */}
-        {(sptransStatus === 'ok' && googleStatus === 'ok') ? (
+        {sptransStatus === 'ok' ? (
           <View style={[styles.banner, styles.bannerOk]}>
-            <Text style={styles.bannerText}>✅ App totalmente configurado!</Text>
+            <Text style={styles.bannerText}>✅ App configurado e pronto!</Text>
           </View>
         ) : (
           <View style={[styles.banner, styles.bannerWarn]}>
             <Text style={styles.bannerText}>
-              ⚠️ Configure os dois tokens abaixo para usar todas as funcionalidades
+              ⚠️ Configure o token da SPTrans abaixo para ver os ônibus
             </Text>
           </View>
         )}
@@ -190,62 +170,6 @@ export function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Google Maps */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Chave Google Maps</Text>
-            <StatusBadge status={googleStatus} />
-          </View>
-          <Text style={styles.sectionDesc}>
-            Necessário para planejar rotas A→B e buscar endereços.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.linkBtn}
-            onPress={() => Linking.openURL('https://console.cloud.google.com/')}
-          >
-            <Text style={styles.linkText}>↗ Criar chave no Google Cloud Console</Text>
-          </TouchableOpacity>
-
-          <Text style={styles.helpText}>
-            Ative estas APIs no seu projeto Google:{'\n'}
-            • Directions API{'\n'}
-            • Geocoding API{'\n'}
-            • Maps SDK for iOS
-          </Text>
-
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              placeholder="Cole sua chave aqui"
-              placeholderTextColor={COLORS.textSecondary}
-              value={googleMapsKey}
-              onChangeText={(t) => { setGoogleMapsKey(t); setGoogleStatus('idle'); }}
-              secureTextEntry={!showGoogle}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity
-              style={styles.eyeBtn}
-              onPress={() => setShowGoogle((v) => !v)}
-            >
-              <Text style={styles.eyeText}>{showGoogle ? '🙈' : '👁️'}</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.testBtn, googleStatus === 'testing' && styles.testBtnDisabled]}
-            onPress={handleTestGoogle}
-            disabled={googleStatus === 'testing'}
-          >
-            {googleStatus === 'testing' ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.testBtnText}>Testar conexão</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
         {/* Salvar */}
         <TouchableOpacity
           style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
@@ -260,11 +184,11 @@ export function SettingsScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.clearBtn} onPress={handleClear}>
-          <Text style={styles.clearBtnText}>Apagar todos os tokens</Text>
+          <Text style={styles.clearBtnText}>Apagar token salvo</Text>
         </TouchableOpacity>
 
         <Text style={styles.securityNote}>
-          🔒 Os tokens ficam salvos apenas no seu celular, nunca são enviados a terceiros.
+          🔒 O token fica salvo apenas no seu celular, nunca é enviado a terceiros.
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
