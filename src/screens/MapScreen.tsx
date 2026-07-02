@@ -129,9 +129,12 @@ export function MapScreen() {
         {busLoading ? (
           <ActivityIndicator size="small" color={COLORS.primary} />
         ) : (
-          <Text style={styles.statusText}>
-            {totalBuses} perto · {total} na cidade
-          </Text>
+          <>
+            <View style={styles.liveDot} />
+            <Text style={styles.statusText}>
+              {totalBuses} ônibus por perto
+            </Text>
+          </>
         )}
         <TouchableOpacity onPress={refresh} style={styles.refreshBtn}>
           <Text style={styles.refreshText}>↻</Text>
@@ -186,7 +189,6 @@ export function MapScreen() {
           <View style={[styles.errorBanner, styles.infoBanner]}>
             <Text style={styles.errorText}>
               Nenhum ônibus dentro de {NEARBY_RADIUS_KM} km de você agora.
-              {' '}Há {total} rodando na cidade — afaste o zoom para vê-los.
             </Text>
           </View>
         ) : null
@@ -244,6 +246,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   statusText: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600' },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.success,
+  },
   refreshBtn: { padding: 2 },
   refreshText: { fontSize: 16, color: COLORS.primary },
   locationBtn: {

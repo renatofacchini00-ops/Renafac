@@ -13,7 +13,7 @@ export const SP_REGION = {
 };
 
 export const NEARBY_RADIUS_KM = 2.5;
-export const REFRESH_INTERVAL_MS = 30_000;
+export const REFRESH_INTERVAL_MS = 15_000;
 
 export const COLORS = {
   primary: '#1565C0',
